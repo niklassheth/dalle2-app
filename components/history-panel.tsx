@@ -8,7 +8,7 @@ import type { GenerationRecord } from "@/lib/types"
 import Image from "next/image"
 import { Virtuoso } from "react-virtuoso"
 import { cn } from "@/lib/utils"
-import { getImageAsDataUrl } from "@/lib/indexeddb"
+import { getBatchImagesAsDataUrls, getImageAsDataUrl } from "@/lib/indexeddb"
 
 interface HistoryPanelProps {
   history: GenerationRecord[]
@@ -26,27 +26,28 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
   useEffect(() => {
     const loadImages = async () => {
       const visibleRecords = history.slice(visibleRange.startIndex, visibleRange.endIndex + 1)
+      const keysToLoad: string[] = []
+
       for (const record of visibleRecords) {
         for (const imageKey of record.base64Images) {
           if (!imageCache[imageKey]) {
-            try {
-              const dataUrl = await getImageAsDataUrl(imageKey)
-              if (dataUrl) {
-                setImageCache(prev => ({
-                  ...prev,
-                  [imageKey]: dataUrl
-                }))
-              }
-            } catch (error) {
-              console.error(`Failed to load image ${imageKey}:`, error)
-            }
+            keysToLoad.push(imageKey)
           }
+        }
+      }
+
+      if (keysToLoad.length > 0) {
+        try {
+          const newImages = await getBatchImagesAsDataUrls(keysToLoad)
+          setImageCache(prev => ({ ...prev, ...newImages }))
+        } catch (error) {
+          console.error('Failed to load images:', error)
         }
       }
     }
 
     loadImages()
-  }, [history, visibleRange, imageCache])
+  }, [history, visibleRange])
 
   const isAllSelected = history.length > 0 && selectedIds.length === history.length
   const toggleSelectAll = () => {
@@ -57,25 +58,32 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     }
   }
 
+  const downloadImages = async (imageKeys: string[], recordId: string, recordType: string) => {
+    for (const [index, imageKey] of imageKeys.entries()) {
+      try {
+        const dataUrl = imageCache[imageKey] || await getImageAsDataUrl(imageKey)
+        if (!dataUrl) continue
+
+        const response = await fetch(dataUrl)
+        const blob = await response.blob()
+        const fileName = `dalle2-${recordType}-${recordId}-${index + 1}.png`
+
+        const a = document.createElement("a")
+        a.href = URL.createObjectURL(blob)
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } catch (error) {
+        console.error("Error downloading image:", error)
+      }
+    }
+  }
+
   const handleDownload = async () => {
     const selectedRecords = history.filter((record) => selectedIds.includes(record.id))
     for (const record of selectedRecords) {
-      for (const [index, base64Image] of record.base64Images.entries()) {
-        try {
-          const response = await fetch(base64Image)
-          const blob = await response.blob()
-          const fileName = `dalle2-${record.type}-${record.id}-${index + 1}.png`
-
-          const a = document.createElement("a")
-          a.href = URL.createObjectURL(blob)
-          a.download = fileName
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        } catch (error) {
-          console.error("Error downloading image:", error)
-        }
-      }
+      await downloadImages(record.base64Images, record.id, record.type)
     }
     setSelectedIds([])
   }
@@ -107,22 +115,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
 
   const handleSingleDownload = async (record: GenerationRecord, e: React.MouseEvent) => {
     e.stopPropagation()
-    for (const [index, base64Image] of record.base64Images.entries()) {
-      try {
-        const response = await fetch(base64Image)
-        const blob = await response.blob()
-        const fileName = `dalle2-${record.type}-${record.id}-${index + 1}.png`
-
-        const a = document.createElement("a")
-        a.href = URL.createObjectURL(blob)
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-      } catch (error) {
-        console.error("Error downloading image:", error)
-      }
-    }
+    await downloadImages(record.base64Images, record.id, record.type)
   }
 
   const reverseSelection = () => {
@@ -186,6 +179,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
       <Virtuoso
         className="flex-1 pr-4 pt-4"
         data={history}
+        increaseViewportBy={{ top: 200, bottom: 400 }}
         rangeChanged={setVisibleRange}
         itemContent={(_, record) => (
           <div className="mb-4">
@@ -288,4 +282,3 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     </div>
   )
 }
-

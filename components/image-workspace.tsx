@@ -17,7 +17,7 @@ import { CropInterface } from "./crop-interface"
 import { MaskInterface } from "./mask-interface"
 import { Download, Edit, Eye, Grid2X2, Grid3X3, ImageMinus, ImageOff, ImagePlus, Images, Loader2, LoaderPinwheel, Maximize2, Paintbrush, RectangleHorizontal, RectangleVertical, Sparkles, Square, SquareX, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
+import { dataURLtoBlob, generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
 import { getImageAsDataUrl, saveImage } from "@/lib/indexeddb"
 import type { GenerationRecord } from "@/lib/types"
 import { useLocalStorage } from "@/lib/use-local-storage"
@@ -412,8 +412,7 @@ export function ImageWorkspace({
 
   // Helper function to save data URL to IndexedDB
   const saveImageFromDataUrl = async (key: string, dataUrl: string) => {
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
+    const blob = dataURLtoBlob(dataUrl);
     await saveImage(key, blob);
   };
 

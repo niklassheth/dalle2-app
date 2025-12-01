@@ -9,6 +9,7 @@ import { useLocalStorage } from "@/lib/use-local-storage"
 import type { GenerationRecord } from "@/lib/types"
 import { useState } from "react"
 import { saveImage, deleteImage } from "@/lib/indexeddb"
+import { dataURLtoBlob } from "@/lib/openai"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AnimatedCharacter } from "@/components/animated-character"
 
@@ -24,20 +25,18 @@ export default function Home() {
     const storageRecord = { ...newRecord };
 
     try {
-      // Save each image to IndexedDB
-      for (let i = 0; i < newRecord.base64Images.length; i++) {
-        const base64Image = newRecord.base64Images[i];
-        const response = await fetch(base64Image);
-        const blob = await response.blob();
-        // Save with a unique key for each image in the record
-        const imageKey = `${newRecord.id}_${i}`;
-        await saveImage(imageKey, blob);
-      }
+      // Save each image to IndexedDB (parallel) without hitting the network stack
+      const imageKeys = await Promise.all(
+        newRecord.base64Images.map(async (base64Image, index) => {
+          const blob = dataURLtoBlob(base64Image);
+          const imageKey = `${newRecord.id}_${index}`;
+          await saveImage(imageKey, blob);
+          return imageKey;
+        })
+      );
 
       // Remove base64 data before storing in localStorage
-      storageRecord.base64Images = newRecord.base64Images.map((_, index) =>
-        `${newRecord.id}_${index}`
-      );
+      storageRecord.base64Images = imageKeys;
 
       // Update metadata in local storage 
       setHistory((prev) => {
@@ -214,4 +213,3 @@ export default function Home() {
     </main>
   )
 }
-
