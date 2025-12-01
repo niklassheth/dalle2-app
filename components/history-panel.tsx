@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Download, Trash2, CheckSquare, Square, ArrowLeftRight, Eye, History, Edit, Images, Sparkles, CheckCheck } from "lucide-react"
 import type { GenerationRecord } from "@/lib/types"
 import Image from "next/image"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Virtuoso } from "react-virtuoso"
 import { cn } from "@/lib/utils"
 import { getImageAsDataUrl } from "@/lib/indexeddb"
 
@@ -20,11 +20,13 @@ interface HistoryPanelProps {
 export function HistoryPanel({ history, onDelete, onSelect, className = "" }: HistoryPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [imageCache, setImageCache] = useState<Record<string, string>>({})
+  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 10 })
 
   // Load images from IndexedDB
   useEffect(() => {
     const loadImages = async () => {
-      for (const record of history) {
+      const visibleRecords = history.slice(visibleRange.startIndex, visibleRange.endIndex + 1)
+      for (const record of visibleRecords) {
         for (const imageKey of record.base64Images) {
           if (!imageCache[imageKey]) {
             try {
@@ -44,7 +46,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     }
 
     loadImages()
-  }, [history, imageCache])
+  }, [history, visibleRange, imageCache])
 
   const isAllSelected = history.length > 0 && selectedIds.length === history.length
   const toggleSelectAll = () => {
@@ -181,12 +183,15 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
         )}
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="space-y-4 pr-4 pt-4">
-          {history.map((record) => (
+      <Virtuoso
+        className="flex-1 pr-4 pt-4"
+        data={history}
+        rangeChanged={setVisibleRange}
+        itemContent={(_, record) => (
+          <div className="mb-4">
             <Card
               key={record.id}
-              className={`transition-colors group relative ${selectedIds.includes(record.id) ? "border-primary" : ""} 
+              className={`transition-colors group relative ${selectedIds.includes(record.id) ? "border-primary" : ""}
                 cursor-pointer hover:border-primary/50`}
               onClick={() => selectedIds.length > 0 ? toggleSelection(record.id) : onSelect(record)}
             >
@@ -277,9 +282,9 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      </ScrollArea>
+          </div>
+        )}
+      />
     </div>
   )
 }
