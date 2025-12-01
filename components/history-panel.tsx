@@ -8,7 +8,7 @@ import type { GenerationRecord } from "@/lib/types"
 import Image from "next/image"
 import { Virtuoso } from "react-virtuoso"
 import { cn } from "@/lib/utils"
-import { getBatchImagesAsDataUrls, getImageAsDataUrl } from "@/lib/indexeddb"
+import { getImageAsDataUrl } from "@/lib/indexeddb"
 
 interface HistoryPanelProps {
   history: GenerationRecord[]
@@ -17,37 +17,19 @@ interface HistoryPanelProps {
   className?: string
 }
 
+function IndexedDBImage({ imageKey, ...props }: { imageKey: string } & React.ComponentProps<typeof Image>) {
+  const [src, setSrc] = useState<string>("")
+
+  useEffect(() => {
+    getImageAsDataUrl(imageKey).then(url => url && setSrc(url))
+  }, [imageKey])
+
+  if (!src) return null
+  return <Image src={src} {...props} />
+}
+
 export function HistoryPanel({ history, onDelete, onSelect, className = "" }: HistoryPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [imageCache, setImageCache] = useState<Record<string, string>>({})
-  const [visibleRange, setVisibleRange] = useState({ startIndex: 0, endIndex: 10 })
-
-  // Load images from IndexedDB
-  useEffect(() => {
-    const loadImages = async () => {
-      const visibleRecords = history.slice(visibleRange.startIndex, visibleRange.endIndex + 1)
-      const keysToLoad: string[] = []
-
-      for (const record of visibleRecords) {
-        for (const imageKey of record.base64Images) {
-          if (!imageCache[imageKey]) {
-            keysToLoad.push(imageKey)
-          }
-        }
-      }
-
-      if (keysToLoad.length > 0) {
-        try {
-          const newImages = await getBatchImagesAsDataUrls(keysToLoad)
-          setImageCache(prev => ({ ...prev, ...newImages }))
-        } catch (error) {
-          console.error('Failed to load images:', error)
-        }
-      }
-    }
-
-    loadImages()
-  }, [history, visibleRange])
 
   const isAllSelected = history.length > 0 && selectedIds.length === history.length
   const toggleSelectAll = () => {
@@ -61,10 +43,8 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
   const downloadImages = async (imageKeys: string[], recordId: string, recordType: string) => {
     for (const [index, imageKey] of imageKeys.entries()) {
       try {
-        const dataUrl = imageCache[imageKey] || await getImageAsDataUrl(imageKey)
-        if (!dataUrl) continue
-
-        const response = await fetch(dataUrl)
+        const dataUrl = await getImageAsDataUrl(imageKey)
+        const response = await fetch(dataUrl as string)
         const blob = await response.blob()
         const fileName = `dalle2-${recordType}-${recordId}-${index + 1}.png`
 
@@ -93,20 +73,14 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     setSelectedIds([])
   }
 
-
   const handleSingleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     onDelete([id])
   }
 
-  const getImageSource = (record: GenerationRecord, index: number): string => {
-    const imageKey = record.base64Images[index]
-    return imageCache[imageKey] || '' // Return empty string or placeholder if image not loaded
-  }
-
-  const openOriginalImage = (record: GenerationRecord, index: number, e: React.MouseEvent) => {
+  const openOriginalImage = async (imageKey: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    const imageSource = getImageSource(record, index)
+    const imageSource = await getImageAsDataUrl(imageKey)
     const win = window.open()
     if (win) {
       win.document.write(`<img src="${imageSource}" style="max-width: 100%; height: auto;">`)
@@ -180,7 +154,6 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
         className="flex-1 pr-4 pt-4"
         data={history}
         increaseViewportBy={{ top: 200, bottom: 400 }}
-        rangeChanged={setVisibleRange}
         itemContent={(_, record) => (
           <div className="mb-4">
             <Card
@@ -253,19 +226,17 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
                   {record.base64Images.map((imageKey, index) => (
                     <div key={imageKey} className="relative aspect-square group/image">
                       <div className="relative w-full h-full">
-                        {imageCache[imageKey] && (
-                          <Image
-                            src={imageCache[imageKey]}
-                            alt={`Generated image ${index + 1}`}
-                            fill
-                            sizes="(max-width: 768px) 100vw, 50vw"
-                            className="object-contain rounded-md shadow"
-                          />
-                        )}
+                        <IndexedDBImage
+                          imageKey={imageKey}
+                          alt={`Generated image ${index + 1}`}
+                          fill
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          className="object-contain rounded-md shadow"
+                        />
                         {!selectedIds.includes(record.id) && (
                           <div
                             className="absolute inset-0 bg-background/80 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                            onClick={(e) => openOriginalImage(record, index, e)}
+                            onClick={(e) => openOriginalImage(imageKey, e)}
                           >
                             <Eye className="h-6 w-6 text-primary" />
                           </div>

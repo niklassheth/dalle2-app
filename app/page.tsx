@@ -38,7 +38,7 @@ export default function Home() {
       // Remove base64 data before storing in localStorage
       storageRecord.base64Images = imageKeys;
 
-      // Update metadata in local storage 
+      // Update metadata in local storage
       setHistory((prev) => {
         const updated = [storageRecord, ...prev];
         if (updated.length > MAX_HISTORY_LENGTH) {
