@@ -32,9 +32,7 @@ export async function deleteImage(key: string) {
     await db.delete(STORE_NAME, key);
 }
 
-// Returns an object URL for the stored image. Despite the name, we return object URLs
-// to avoid expensive base64 conversions and keep memory lower.
-export async function getImageAsDataUrl(key: string): Promise<string | undefined> {
+export async function getImageAsObjectUrl(key: string): Promise<string | undefined> {
     const cached = objectUrlCache.get(key);
     if (cached) return cached;
 

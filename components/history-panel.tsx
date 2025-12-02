@@ -8,7 +8,7 @@ import type { GenerationRecord } from "@/lib/types"
 import Image from "next/image"
 import { Virtuoso } from "react-virtuoso"
 import { cn } from "@/lib/utils"
-import { getImageAsDataUrl } from "@/lib/indexeddb"
+import { getImageAsObjectUrl } from "@/lib/indexeddb"
 
 interface HistoryPanelProps {
   history: GenerationRecord[]
@@ -21,7 +21,7 @@ function IndexedDBImage({ imageKey, ...props }: { imageKey: string } & React.Com
   const [src, setSrc] = useState<string>("")
 
   useEffect(() => {
-    getImageAsDataUrl(imageKey).then(url => url && setSrc(url))
+    getImageAsObjectUrl(imageKey).then(url => url && setSrc(url))
   }, [imageKey])
 
   if (!src) return null
@@ -43,7 +43,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
   const downloadImages = async (imageKeys: string[], recordId: string, recordType: string) => {
     for (const [index, imageKey] of imageKeys.entries()) {
       try {
-        const dataUrl = await getImageAsDataUrl(imageKey)
+        const dataUrl = await getImageAsObjectUrl(imageKey)
         const response = await fetch(dataUrl as string)
         const blob = await response.blob()
         const fileName = `dalle2-${recordType}-${recordId}-${index + 1}.png`
@@ -80,7 +80,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
 
   const openOriginalImage = async (imageKey: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    const imageSource = await getImageAsDataUrl(imageKey)
+    const imageSource = await getImageAsObjectUrl(imageKey)
     const win = window.open()
     if (win) {
       win.document.write(`<img src="${imageSource}" style="max-width: 100%; height: auto;">`)

@@ -18,7 +18,7 @@ import { MaskInterface } from "./mask-interface"
 import { Download, Edit, Eye, Grid2X2, Grid3X3, ImageMinus, ImageOff, ImagePlus, Images, Loader2, LoaderPinwheel, Maximize2, Paintbrush, RectangleHorizontal, RectangleVertical, Sparkles, Square, SquareX, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { dataURLtoBlob, generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
-import { getImageAsDataUrl, saveImage } from "@/lib/indexeddb"
+import { getImageAsObjectUrl, saveImage } from "@/lib/indexeddb"
 import type { GenerationRecord } from "@/lib/types"
 import { useLocalStorage } from "@/lib/use-local-storage"
 import { cn } from "@/lib/utils"
@@ -102,18 +102,18 @@ export function ImageWorkspace({
       const loadImages = async () => {
         try {
           if (selectedRecord.originalImage) {
-            const originalDataUrl = await getImageAsDataUrl(selectedRecord.originalImage)
+            const originalDataUrl = await getImageAsObjectUrl(selectedRecord.originalImage)
             setUploadedImage(originalDataUrl || null)
           }
 
           if (selectedRecord.maskImage) {
-            const maskDataUrl = await getImageAsDataUrl(selectedRecord.maskImage)
+            const maskDataUrl = await getImageAsObjectUrl(selectedRecord.maskImage)
             setMask(maskDataUrl || null)
           }
 
           // Load result images
           const loadedImages = await Promise.all(
-            selectedRecord.base64Images.map(key => getImageAsDataUrl(key))
+            selectedRecord.base64Images.map(key => getImageAsObjectUrl(key))
           )
           setResults(loadedImages.filter((img): img is string => img !== undefined))
         } catch (error) {
