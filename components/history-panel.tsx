@@ -150,12 +150,12 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
         )}
       </div>
 
-      <Virtuoso
-        className="flex-1 pt-4"
-        data={history}
-        increaseViewportBy={{ top: 200, bottom: 400 }}
-        itemContent={(_, record) => (
-          <div className="mb-4 pr-4">
+      <div className="flex-1 pr-4 pt-4">
+        <Virtuoso
+          data={history}
+          increaseViewportBy={{ top: 200, bottom: 400 }}
+          itemContent={(_, record) => (
+            <div className="mb-4">
             <Card
               key={record.id}
               className={`transition-colors group relative ${selectedIds.includes(record.id) ? "border-primary" : ""}
@@ -250,6 +250,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
           </div>
         )}
       />
+      </div>
     </div>
   )
 }
