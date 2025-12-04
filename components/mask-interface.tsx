@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "./ui/scroll-area"
+import type { DataURL } from "@/lib/url-types"
 
 interface MaskInterfaceProps {
-    image: string
-    onMaskComplete: (mask: string) => void
+    image: DataURL  // Working state is always DataURL
+    onMaskComplete: (mask: string) => void  // Returns DataURL string from canvas.toDataURL()
     onCancel: () => void
 }
 

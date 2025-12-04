@@ -4,10 +4,11 @@ import { useCallback, useState } from "react"
 import Cropper from "react-easy-crop"
 import { Button } from "./ui/button"
 import type { Area } from "react-easy-crop"
+import type { DataURL } from "@/lib/url-types"
 
 interface CropInterfaceProps {
-    image: string
-    onCropComplete: (croppedImage: string) => void
+    image: DataURL  // Working state is always DataURL
+    onCropComplete: (croppedImage: string) => void  // Returns DataURL string from canvas.toDataURL()
     onCancel: () => void
     aspectRatio?: number
 }

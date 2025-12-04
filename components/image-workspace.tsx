@@ -17,11 +17,12 @@ import { CropInterface } from "./crop-interface"
 import { MaskInterface } from "./mask-interface"
 import { Download, Edit, Eye, Grid2X2, Grid3X3, ImageMinus, ImageOff, ImagePlus, Images, Loader2, LoaderPinwheel, Maximize2, Paintbrush, RectangleHorizontal, RectangleVertical, Sparkles, Square, SquareX, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { dataURLtoBlob, generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
-import { getImageAsObjectUrl, saveImage } from "@/lib/indexeddb"
+import { generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
+import { getImageAsObjectUrl, getImageAsDataUrl, saveImage, createImageKey } from "@/lib/indexeddb"
 import type { GenerationRecord } from "@/lib/types"
 import { useLocalStorage } from "@/lib/use-local-storage"
 import { cn } from "@/lib/utils"
+import { dataURLToBlob, type DataURL, type ObjectURL, type IndexedDBKey } from "@/lib/url-types"
 
 // Constants for validation
 const DALLE2_MAX_SIZE_MB = 4;
@@ -78,11 +79,14 @@ export function ImageWorkspace({
   const [showMaskInterface, setShowMaskInterface] = useState(false);
 
   // Image Data State
-  const [results, setResults] = useState<string[]>([]);
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
-  const [additionalImages, setAdditionalImages] = useState<string[] | null>(null);
-  const [originalImageFile, setOriginalImageFile] = useState<string | null>(null);
-  const [mask, setMask] = useState<string | null>(null);
+  // Results are ObjectURLs from IndexedDB cache (many images, managed, properly revoked on delete)
+  const [results, setResults] = useState<ObjectURL[]>([]);
+  // Working state is always DataURL - simple strings, no manual cleanup needed
+  // Fresh uploads/crops/masks are DataURL. History-loaded images are converted to DataURL.
+  const [uploadedImage, setUploadedImage] = useState<DataURL | null>(null);
+  const [additionalImages, setAdditionalImages] = useState<DataURL[] | null>(null);
+  const [originalImageFile, setOriginalImageFile] = useState<DataURL | null>(null);
+  const [mask, setMask] = useState<DataURL | null>(null);
 
   // Mode and Aspect Ratio
   const [mode, setMode] = useState<"generate" | "edit" | "variation">("generate");
@@ -101,21 +105,22 @@ export function ImageWorkspace({
       // Load images from IndexedDB
       const loadImages = async () => {
         try {
+          // Load working state as DataURL (simple strings, no cleanup needed)
           if (selectedRecord.originalImage) {
-            const originalDataUrl = await getImageAsObjectUrl(selectedRecord.originalImage)
+            const originalDataUrl = await getImageAsDataUrl(selectedRecord.originalImage)
             setUploadedImage(originalDataUrl || null)
           }
 
           if (selectedRecord.maskImage) {
-            const maskDataUrl = await getImageAsObjectUrl(selectedRecord.maskImage)
+            const maskDataUrl = await getImageAsDataUrl(selectedRecord.maskImage)
             setMask(maskDataUrl || null)
           }
 
-          // Load result images
+          // Load result images as ObjectURL (many images, cached, properly managed)
           const loadedImages = await Promise.all(
             selectedRecord.base64Images.map(key => getImageAsObjectUrl(key))
           )
-          setResults(loadedImages.filter((img): img is string => img !== undefined))
+          setResults(loadedImages.filter((img): img is ObjectURL => img !== undefined))
         } catch (error) {
           console.error("Failed to load images:", error)
         }
@@ -191,10 +196,13 @@ export function ImageWorkspace({
       return; // No valid files to process
     }
 
+    // Read files as DataURLs (no ObjectURL conversion - DataURLs are GC-able strings)
     const filePromises = validFiles.map(file => {
-      return new Promise<string>((resolve, reject) => {
+      return new Promise<DataURL>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = (event) => resolve(event.target?.result as string);
+        reader.onload = (event) => {
+          resolve(event.target?.result as DataURL);
+        };
         reader.onerror = (error) => reject(error);
         reader.readAsDataURL(file);
       });
@@ -233,7 +241,8 @@ export function ImageWorkspace({
   };
 
   const handleCropComplete = (croppedImage: string) => {
-    setUploadedImage(croppedImage);
+    // Keep as DataURL (no ObjectURL conversion - DataURLs are GC-able strings)
+    setUploadedImage(croppedImage as DataURL);
     setShowCropper(false);
     setAdditionalImages(null); // Cropping is DALL-E 2 specific, clear additional images
     // Only set mode if it wasn't already set (e.g., by selecting a record)
@@ -312,20 +321,12 @@ export function ImageWorkspace({
           quality
         })
       } else if (mode === "variation" && uploadedImage) {
-        // Pass only the primary image for variation
         response = await createImageVariation(apiKey, uploadedImage, numImages, size, model)
       } else if (mode === "edit" && uploadedImage) {
-        // Pass only the primary image and mask for edit
-        // Mask is optional for gpt-image-1 (edits whole image if null), required for dall-e-2 (handled above)
         response = await createImageEdit(apiKey, uploadedImage, mask, prompt, numImages, size, model)
       } else {
         throw new Error("Invalid mode or missing data")
       }
-
-      const base64Images = response.data.map((item: { b64_json: string }) =>
-        `data:image/png;base64,${item.b64_json}`
-      )
-      setResults(base64Images)
 
       // Display token usage toast for gpt-image-1
       let totalCost = calculateCost(size, numImages, model, quality); // Calculate output cost first
@@ -350,12 +351,14 @@ export function ImageWorkspace({
         })
       }
 
+      const recordId = Date.now().toString();
+      
       const newRecord: GenerationRecord = {
-        id: Date.now().toString(),
+        id: recordId,
         type: mode,
         prompt: mode !== "variation" ? prompt : undefined,
         size,
-        base64Images, // Will be replaced by keys before saving to local storage
+        base64Images: [], // Will be filled with IndexedDB keys
         requestTime: response.created * 1000, // Use API timestamp
         n: numImages,
         cost: totalCost, // Store the final total cost (output + input)
@@ -372,18 +375,40 @@ export function ImageWorkspace({
         } : undefined,
       }
 
-      // Add original/mask image keys before saving to history
+      // Save images to IndexedDB and collect keys
       try {
+        // Save result images directly from base64 (more efficient than ObjectURL → fetch → Blob)
+        const imageKeys: IndexedDBKey[] = [];
+        for (let i = 0; i < response.data.length; i++) {
+          const key = createImageKey(recordId, `result_${i}`);
+          const blob = dataURLToBlob(`data:image/png;base64,${response.data[i].b64_json}` as DataURL);
+          await saveImage(key, blob);
+          imageKeys.push(key);
+        }
+        newRecord.base64Images = imageKeys;
+
+        // Get cached ObjectURLs from IndexedDB for display (single source of truth)
+        const objectUrls = await Promise.all(
+          imageKeys.map(key => getImageAsObjectUrl(key))
+        );
+        setResults(objectUrls.filter((url): url is ObjectURL => url !== undefined));
+
+        // Save original image if applicable (working state is always DataURL)
         if (mode !== 'generate' && uploadedImage) {
-          const originalKey = `${newRecord.id}_original`;
-          await saveImageFromDataUrl(originalKey, uploadedImage);
+          const originalKey = createImageKey(recordId, 'original');
+          const blob = dataURLToBlob(uploadedImage);
+          await saveImage(originalKey, blob);
           newRecord.originalImage = originalKey;
         }
+
+        // Save mask if applicable (working state is always DataURL)
         if (mode === 'edit' && mask) {
-          const maskKey = `${newRecord.id}_mask`;
-          await saveImageFromDataUrl(maskKey, mask);
+          const maskKey = createImageKey(recordId, 'mask');
+          const blob = dataURLToBlob(mask);
+          await saveImage(maskKey, blob);
           newRecord.maskImage = maskKey;
         }
+
         // Now pass the complete record (with image keys) to updateHistory
         await updateHistory(newRecord);
       } catch (saveError) {
@@ -393,9 +418,6 @@ export function ImageWorkspace({
           description: "Could not save generated images locally. Check console for details.",
           variant: "destructive",
         });
-        // Decide if you still want to update history without images, maybe with a flag
-        // For now, we proceed to update history metadata but images might be missing
-        // await updateHistory({ ...newRecord, base64Images: [] }); // Example: update without images
       }
 
     } catch (error) {
@@ -409,12 +431,6 @@ export function ImageWorkspace({
       setIsLoading(false)
     }
   }
-
-  // Helper function to save data URL to IndexedDB
-  const saveImageFromDataUrl = async (key: string, dataUrl: string) => {
-    const blob = dataURLtoBlob(dataUrl);
-    await saveImage(key, blob);
-  };
 
   const calculateCost = (size: string, n: number, model: string, quality: string = "auto") => {
     if (model === "gpt-image-1") {
@@ -473,21 +489,19 @@ export function ImageWorkspace({
     }
   }
 
-  const openOriginalImage = (base64Image: string) => {
+  const openOriginalImage = (imageUrl: string) => {
     const win = window.open()
     if (win) {
-      win.document.write(`<img src="${base64Image}" style="max-width: 100%; height: auto;">`)
+      win.document.write(`<img src="${imageUrl}" style="max-width: 100%; height: auto;">`)
     }
   }
 
-  const handleDownload = async (base64Image: string, index: number) => {
+  const handleDownload = (imageUrl: string, index: number) => {
     try {
-      const response = await fetch(base64Image)
-      const blob = await response.blob()
       const fileName = `dalle2-${mode}-${Date.now()}-${index + 1}.png`
 
       const a = document.createElement("a")
-      a.href = URL.createObjectURL(blob)
+      a.href = imageUrl
       a.download = fileName
       document.body.appendChild(a)
       a.click()
@@ -498,22 +512,28 @@ export function ImageWorkspace({
   }
 
   const getEstimatedCost = () => {
-    // Pass the primary image for cost calculation if needed (though currently cost depends on size/n/model/quality)
     return calculateCost(size, numImages, model, quality).toFixed(3)
   }
 
-  const handleSelectAsUpload = (base64Image: string) => {
-    setUploadedImage(base64Image) // Set as the new primary image
-    setAdditionalImages(null); // Clear any previous additional images
-    setMask(null); // Clear mask when selecting a result
-    setResults([]) // Clear previous results
+  const handleSelectAsUpload = async (imageUrl: ObjectURL) => {
+    // Convert ObjectURL to DataURL for working state (consistent type, no cleanup needed)
+    const response = await fetch(imageUrl)
+    const blob = await response.blob()
+    const dataUrl = await new Promise<DataURL>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as DataURL)
+      reader.readAsDataURL(blob)
+    })
+
+    setUploadedImage(dataUrl)
+    setAdditionalImages(null)
+    setMask(null)
+    setResults([])
 
     if (model === "gpt-image-1") {
-      setMode("edit") // Set mode to edit for gpt-image-1
-      // Don't automatically show mask interface, let user click if needed
-      // setShowMaskInterface(true)
+      setMode("edit")
     } else {
-      setMode("variation") // Keep variation mode for dall-e-2
+      setMode("variation")
     }
   }
 
@@ -558,7 +578,7 @@ export function ImageWorkspace({
         setShowMaskInterface(false);
       }
     } else {
-      // Remove from additionsl
+      // Remove from additional
       setAdditionalImages(prev => prev ? prev.filter((_, i) => i !== index) : null);
     }
   };
@@ -1149,7 +1169,8 @@ export function ImageWorkspace({
                 setMask(null);
                 if (model === "dall-e-2") setMode("variation");
               } else {
-                setMask(maskImage);
+                // Keep as DataURL (no ObjectURL conversion - DataURLs are GC-able strings)
+                setMask(maskImage as DataURL);
               }
               setShowMaskInterface(false);
             }}
@@ -1178,12 +1199,12 @@ export function ImageWorkspace({
           </div>
         ) : results.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {results.map((base64Image, index) => (
+            {results.map((imageUrl, index) => (
               <div key={index} className="relative aspect-square group">
                 <div className="relative w-full h-full">
-                  {base64Image ? (
+                  {imageUrl ? (
                     <Image
-                      src={base64Image}
+                      src={imageUrl}
                       alt={`Generated image ${index + 1}`}
                       fill
                       sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
@@ -1199,21 +1220,21 @@ export function ImageWorkspace({
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => openOriginalImage(base64Image)}
+                    onClick={() => openOriginalImage(imageUrl)}
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => handleDownload(base64Image, index)}
+                    onClick={() => handleDownload(imageUrl, index)}
                   >
                     <Download className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => handleSelectAsUpload(base64Image)}
+                    onClick={() => handleSelectAsUpload(imageUrl)}
                   >
                     <ImagePlus className="h-4 w-4" />
                   </Button>

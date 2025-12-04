@@ -1,3 +1,5 @@
+import type { IndexedDBKey } from './url-types'
+
 export interface GenerationRecord {
   id: string
   type: "generate" | "edit" | "variation"
@@ -6,9 +8,10 @@ export interface GenerationRecord {
   n: number
   cost: number
   createdAt: number
-  originalImage?: string
-  maskImage?: string
-  base64Images: string[]
+  // These are IndexedDB storage keys, not URLs
+  originalImage?: IndexedDBKey
+  maskImage?: IndexedDBKey
+  base64Images: IndexedDBKey[]  // Named base64Images for historical reasons, but stores IndexedDB keys
   requestTime: number
   model: "dall-e-2" | "gpt-image-1"
   usage?: {
@@ -25,4 +28,3 @@ export interface GenerationRecord {
 export interface UserPreferences {
   apiKey: string
 }
-

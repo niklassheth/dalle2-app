@@ -8,8 +8,7 @@ import { useTheme } from "next-themes"
 import { useLocalStorage } from "@/lib/use-local-storage"
 import type { GenerationRecord } from "@/lib/types"
 import { useState } from "react"
-import { saveImage, deleteImage } from "@/lib/indexeddb"
-import { dataURLtoBlob } from "@/lib/openai"
+import { deleteImage } from "@/lib/indexeddb"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AnimatedCharacter } from "@/components/animated-character"
 
@@ -20,49 +19,37 @@ export default function Home() {
   const [model, setModel] = useState<"dall-e-2" | "gpt-image-1">("gpt-image-1")
   const MAX_HISTORY_LENGTH = 100; // Set a limit for the number of records
 
+  // Images are already saved to IndexedDB by image-workspace.tsx
+  // This function just adds the record metadata to localStorage history
   const updateHistory = async (newRecord: GenerationRecord) => {
-    // Save images to IndexedDB and create a modified record for localStorage
-    const storageRecord = { ...newRecord };
-
-    try {
-      // Save each image to IndexedDB (parallel) without hitting the network stack
-      const imageKeys = await Promise.all(
-        newRecord.base64Images.map(async (base64Image, index) => {
-          const blob = dataURLtoBlob(base64Image);
-          const imageKey = `${newRecord.id}_${index}`;
-          await saveImage(imageKey, blob);
-          return imageKey;
-        })
-      );
-
-      // Remove base64 data before storing in localStorage
-      storageRecord.base64Images = imageKeys;
-
-      // Update metadata in local storage
-      setHistory((prev) => {
-        const updated = [storageRecord, ...prev];
-        if (updated.length > MAX_HISTORY_LENGTH) {
-          const oldest = updated.pop();
-          if (oldest) {
-            // Delete all images associated with the oldest record
-            (async () => {
-              try {
-                // Delete each image for the record
-                for (const imageKey of oldest.base64Images) {
-                  await deleteImage(imageKey);
-                }
-              } catch (error) {
-                console.error(`Failed to delete oldest record images:`, error);
+    setHistory((prev) => {
+      const updated = [newRecord, ...prev];
+      if (updated.length > MAX_HISTORY_LENGTH) {
+        const oldest = updated.pop();
+        if (oldest) {
+          // Delete all images associated with the oldest record
+          (async () => {
+            try {
+              // Delete result images
+              for (const imageKey of oldest.base64Images) {
+                await deleteImage(imageKey);
               }
-            })();
-          }
+              // Delete original image if present
+              if (oldest.originalImage) {
+                await deleteImage(oldest.originalImage);
+              }
+              // Delete mask image if present
+              if (oldest.maskImage) {
+                await deleteImage(oldest.maskImage);
+              }
+            } catch (error) {
+              console.error(`Failed to delete oldest record images:`, error);
+            }
+          })();
         }
-        return updated;
-      });
-    } catch (error) {
-      console.error('Failed to save images:', error);
-      throw error; // Re-throw to handle in the UI
-    }
+      }
+      return updated;
+    });
   }
 
   const deleteRecords = async (ids: string[]) => {
@@ -72,8 +59,17 @@ export default function Home() {
       if (record) {
         // Delete all images associated with this record
         try {
+          // Delete result images
           for (const imageKey of record.base64Images) {
             await deleteImage(imageKey);
+          }
+          // Delete original image if present
+          if (record.originalImage) {
+            await deleteImage(record.originalImage);
+          }
+          // Delete mask image if present
+          if (record.maskImage) {
+            await deleteImage(record.maskImage);
           }
         } catch (error) {
           console.error(`Failed to delete images for record ${id}:`, error)

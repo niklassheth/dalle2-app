@@ -9,6 +9,9 @@ import Image from "next/image"
 import { Virtuoso } from "react-virtuoso"
 import { cn } from "@/lib/utils"
 import { getImageAsObjectUrl } from "@/lib/indexeddb"
+import type { ObjectURL, IndexedDBKey } from "@/lib/url-types"
+import React from "react"
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 
 interface HistoryPanelProps {
   history: GenerationRecord[]
@@ -17,8 +20,8 @@ interface HistoryPanelProps {
   className?: string
 }
 
-function IndexedDBImage({ imageKey, ...props }: { imageKey: string } & React.ComponentProps<typeof Image>) {
-  const [src, setSrc] = useState<string>("")
+function IndexedDBImage({ imageKey, ...props }: { imageKey: IndexedDBKey } & Omit<React.ComponentProps<typeof Image>, 'src'>) {
+  const [src, setSrc] = useState<ObjectURL | "">("")
 
   useEffect(() => {
     getImageAsObjectUrl(imageKey).then(url => url && setSrc(url))
@@ -30,6 +33,7 @@ function IndexedDBImage({ imageKey, ...props }: { imageKey: string } & React.Com
 
 export function HistoryPanel({ history, onDelete, onSelect, className = "" }: HistoryPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null)
 
   const isAllSelected = history.length > 0 && selectedIds.length === history.length
   const toggleSelectAll = () => {
@@ -40,16 +44,16 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     }
   }
 
-  const downloadImages = async (imageKeys: string[], recordId: string, recordType: string) => {
+  const downloadImages = async (imageKeys: IndexedDBKey[], recordId: string, recordType: string) => {
     for (const [index, imageKey] of imageKeys.entries()) {
       try {
-        const dataUrl = await getImageAsObjectUrl(imageKey)
-        const response = await fetch(dataUrl as string)
-        const blob = await response.blob()
+        const objectUrl = await getImageAsObjectUrl(imageKey)
+        if (!objectUrl) continue
         const fileName = `dalle2-${recordType}-${recordId}-${index + 1}.png`
 
+        // Use cached ObjectURL directly - no need to create a new one
         const a = document.createElement("a")
-        a.href = URL.createObjectURL(blob)
+        a.href = objectUrl
         a.download = fileName
         document.body.appendChild(a)
         a.click()
@@ -78,9 +82,10 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     onDelete([id])
   }
 
-  const openOriginalImage = async (imageKey: string, e: React.MouseEvent) => {
+  const openOriginalImage = async (imageKey: IndexedDBKey, e: React.MouseEvent) => {
     e.stopPropagation()
     const imageSource = await getImageAsObjectUrl(imageKey)
+    if (!imageSource) return
     const win = window.open()
     if (win) {
       win.document.write(`<img src="${imageSource}" style="max-width: 100%; height: auto;">`)
@@ -150,107 +155,114 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
         )}
       </div>
 
-      <div className="flex-1 pr-4 pt-4">
-        <Virtuoso
-          data={history}
-          increaseViewportBy={{ top: 200, bottom: 400 }}
-          itemContent={(_, record) => (
-            <div className="mb-4">
-            <Card
-              key={record.id}
-              className={`transition-colors group relative ${selectedIds.includes(record.id) ? "border-primary" : ""}
-                cursor-pointer hover:border-primary/50`}
-              onClick={() => selectedIds.length > 0 ? toggleSelection(record.id) : onSelect(record)}
-            >
-              <div className={`absolute bottom-2 right-2 z-10 transition-opacity ${selectedIds.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                }`}>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="h-8 w-8 bg-secondary/50"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleSelection(record.id);
-                  }}
+      <ScrollAreaPrimitive.Root className="flex-1 pt-4 relative overflow-hidden">
+        <ScrollAreaPrimitive.Viewport ref={setScrollParent} className="h-full w-full rounded-[inherit]">
+          <Virtuoso
+            customScrollParent={scrollParent ?? undefined}
+            data={history}
+            increaseViewportBy={{ top: 200, bottom: 400 }}
+            itemContent={(_, record) => (
+              <div className="mb-4 pr-4">
+                <Card
+                  key={record.id}
+                  className={`transition-colors group relative ${selectedIds.includes(record.id) ? "border-primary" : ""} cursor-pointer hover:border-primary/50`}
+                  onClick={() => selectedIds.length > 0 ? toggleSelection(record.id) : onSelect(record)}
                 >
-                  {selectedIds.includes(record.id) ? (
-                    <CheckSquare className="h-4 w-4" />
-                  ) : (
-                    <Square className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-
-              {selectedIds.length === 0 && (
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 z-10">
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={(e) => handleSingleDownload(record, e)}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={(e) => handleSingleDelete(record.id, e)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      {record.type === "generate" && <Sparkles className="h-4 w-4 text-primary" />}
-                      {record.type === "variation" && <Images className="h-4 w-4 text-primary" />}
-                      {record.type === "edit" && <Edit className="h-4 w-4 text-primary" />}
-                      <p className="font-medium">{record.type.charAt(0).toUpperCase() + record.type.slice(1)}</p>
-                    </div>
-                    {record.prompt && <p className="text-sm text-muted-foreground break-words">{record.prompt}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Size: {record.size} | Cost: ${record.cost.toFixed(3)} | Images: {record.n} | Model: {record.model === "dall-e-2" ? "DALL·E 2" : "GPT-Image-1"}
-                    </p>
+                  <div className={`absolute bottom-2 right-2 z-10 transition-opacity ${selectedIds.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="h-8 w-8 bg-secondary/50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelection(record.id);
+                      }}
+                    >
+                      {selectedIds.includes(record.id) ? (
+                        <CheckSquare className="h-4 w-4" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </Button>
                   </div>
-                </div>
 
-                {/* Preview Grid */}
-                <div className={cn(
-                  "w-full",
-                  record.base64Images.length > 1 ? "grid grid-cols-2 gap-2" : "relative aspect-square"
-                )}>
-                  {record.base64Images.map((imageKey, index) => (
-                    <div key={imageKey} className="relative aspect-square group/image">
-                      <div className="relative w-full h-full">
-                        <IndexedDBImage
-                          imageKey={imageKey}
-                          alt={`Generated image ${index + 1}`}
-                          fill
-                          sizes="(max-width: 768px) 100vw, 50vw"
-                          className="object-contain rounded-md shadow"
-                        />
-                        {!selectedIds.includes(record.id) && (
-                          <div
-                            className="absolute inset-0 bg-background/80 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                            onClick={(e) => openOriginalImage(imageKey, e)}
-                          >
-                            <Eye className="h-6 w-6 text-primary" />
-                          </div>
-                        )}
+                  {selectedIds.length === 0 && (
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 z-10">
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => handleSingleDownload(record, e)}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => handleSingleDelete(record.id, e)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {record.type === "generate" && <Sparkles className="h-4 w-4 text-primary" />}
+                          {record.type === "variation" && <Images className="h-4 w-4 text-primary" />}
+                          {record.type === "edit" && <Edit className="h-4 w-4 text-primary" />}
+                          <p className="font-medium">{record.type.charAt(0).toUpperCase() + record.type.slice(1)}</p>
+                        </div>
+                        {record.prompt && <p className="text-sm text-muted-foreground break-words">{record.prompt}</p>}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Size: {record.size} | Cost: ${record.cost.toFixed(3)} | Images: {record.n} | Model: {record.model === "dall-e-2" ? "DALL·E 2" : "GPT-Image-1"}
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+
+                    {/* Preview Grid */}
+                    <div className={cn(
+                      "w-full",
+                      record.base64Images.length > 1 ? "grid grid-cols-2 gap-2" : "relative aspect-square"
+                    )}>
+                      {record.base64Images.map((imageKey, index) => (
+                        <div key={imageKey} className="relative aspect-square group/image">
+                          <div className="relative w-full h-full">
+                            <IndexedDBImage
+                              imageKey={imageKey}
+                              alt={`Generated image ${index + 1}`}
+                              fill
+                              sizes="(max-width: 768px) 100vw, 50vw"
+                              className="object-contain rounded-md shadow"
+                            />
+                            {!selectedIds.includes(record.id) && (
+                              <div
+                                className="absolute inset-0 bg-background/80 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                onClick={(e) => openOriginalImage(imageKey, e)}
+                              >
+                                <Eye className="h-6 w-6 text-primary" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
       />
-      </div>
+        </ScrollAreaPrimitive.Viewport>
+        <ScrollAreaPrimitive.Scrollbar
+          orientation="vertical"
+          className="flex touch-none select-none transition-colors h-full w-2.5 border-l border-l-transparent p-[1px]"
+        >
+          <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
+        </ScrollAreaPrimitive.Scrollbar>
+      </ScrollAreaPrimitive.Root>
     </div>
   )
 }

@@ -1,14 +1,4 @@
-export function dataURLtoBlob(dataURL: string): Blob {
-  const arr = dataURL.split(",")
-  const mime = arr[0].match(/:(.*?);/)?.[1]
-  const bstr = atob(arr[1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n)
-  }
-  return new Blob([u8arr], { type: mime })
-}
+import { dataURLToBlob, type DataURL } from './url-types'
 
 interface GPTImage1Options {
   background?: "transparent" | "opaque" | "auto"
@@ -75,12 +65,12 @@ export async function generateImage(
 
 export async function createImageVariation(
   apiKey: string,
-  imageDataUrl: string,
+  image: DataURL,
   n: number,
   size: string,
   model: "dall-e-2" | "gpt-image-1" = "dall-e-2"
 ) {
-  const blob = dataURLtoBlob(imageDataUrl)
+  const blob = dataURLToBlob(image)
 
   const formData = new FormData()
   formData.append("image", blob, "image.png")
@@ -110,22 +100,22 @@ export async function createImageVariation(
 
 export async function createImageEdit(
   apiKey: string,
-  imageDataUrl: string,
-  maskDataUrl: string | null,
+  image: DataURL,
+  mask: DataURL | null,
   prompt: string,
   n: number,
   size: string,
   model: "dall-e-2" | "gpt-image-1" = "dall-e-2"
 ) {
-  const imageBlob = dataURLtoBlob(imageDataUrl);
+  const imageBlob = dataURLToBlob(image);
 
   const formData = new FormData();
   formData.append("image", imageBlob, "image.png");
 
   // For DALL-E 2, mask is required. For gpt-image-1, mask is optional.
-  if (model === "dall-e-2" || (model === "gpt-image-1" && maskDataUrl)) {
-    if (maskDataUrl) {
-      const maskBlob = dataURLtoBlob(maskDataUrl);
+  if (model === "dall-e-2" || (model === "gpt-image-1" && mask)) {
+    if (mask) {
+      const maskBlob = dataURLToBlob(mask);
       formData.append("mask", maskBlob, "mask.png");
     }
   }
