@@ -15,7 +15,7 @@ import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import { CropInterface } from "./crop-interface"
 import { MaskInterface } from "./mask-interface"
-import { Download, Edit, Eye, Grid2X2, Grid3X3, ImageMinus, ImageOff, ImagePlus, Images, Loader2, LoaderPinwheel, Maximize2, Paintbrush, RectangleHorizontal, RectangleVertical, Sparkles, Square, SquareX, X } from "lucide-react"
+import { Download, Edit, ExternalLink, Eye, Grid2X2, Grid3X3, ImageMinus, ImageOff, ImagePlus, Images, Loader2, LoaderPinwheel, Maximize2, Paintbrush, RectangleHorizontal, RectangleVertical, Sparkles, Square, SquareX, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { generateImage, createImageEdit, createImageVariation } from "@/lib/openai"
 import { getImageAsObjectUrl, getImageAsDataUrl, saveImage, createImageKey } from "@/lib/indexeddb"
@@ -61,6 +61,10 @@ export function ImageWorkspace({
   const [prompt, setPrompt] = useState("");
   const [isPromptPopupOpen, setIsPromptPopupOpen] = useState(false);
   const [popupPromptText, setPopupPromptText] = useState("");
+
+  // Image Viewer Modal State
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
 
   // Image Generation Parameters
   const [size, setSize] = useState<
@@ -489,7 +493,12 @@ export function ImageWorkspace({
     }
   }
 
-  const openOriginalImage = (imageUrl: string) => {
+  const openImageModal = (imageUrl: string) => {
+    setModalImageUrl(imageUrl)
+    setIsImageModalOpen(true)
+  }
+
+  const openImageInNewTab = (imageUrl: string) => {
     const win = window.open()
     if (win) {
       win.document.write(`<img src="${imageUrl}" style="max-width: 100%; height: auto;">`)
@@ -1201,7 +1210,10 @@ export function ImageWorkspace({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {results.map((imageUrl, index) => (
               <div key={index} className="relative aspect-square group">
-                <div className="relative w-full h-full">
+                <div
+                  className="relative w-full h-full cursor-pointer"
+                  onClick={() => openImageModal(imageUrl)}
+                >
                   {imageUrl ? (
                     <Image
                       src={imageUrl}
@@ -1220,14 +1232,16 @@ export function ImageWorkspace({
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => openOriginalImage(imageUrl)}
+                    onClick={() => openImageInNewTab(imageUrl)}
+                    title="Open in new tab"
                   >
-                    <Eye className="h-4 w-4" />
+                    <ExternalLink className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => handleDownload(imageUrl, index)}
+                    title="Download"
                   >
                     <Download className="h-4 w-4" />
                   </Button>
@@ -1235,6 +1249,7 @@ export function ImageWorkspace({
                     variant="secondary"
                     size="sm"
                     onClick={() => handleSelectAsUpload(imageUrl)}
+                    title="Use as input"
                   >
                     <ImagePlus className="h-4 w-4" />
                   </Button>
@@ -1283,6 +1298,22 @@ export function ImageWorkspace({
                 Save Prompt
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Image Viewer Modal */}
+        <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+          <DialogContent className="!max-w-[95vw] max-h-[95vh] w-fit h-fit p-2 overflow-hidden">
+            {modalImageUrl && (
+              <Image
+                src={modalImageUrl}
+                alt="Full size image"
+                width={1536}
+                height={1536}
+                className="max-w-[93vw] max-h-[93vh] w-auto h-auto object-contain"
+                priority
+              />
+            )}
           </DialogContent>
         </Dialog>
 

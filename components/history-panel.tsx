@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Download, Trash2, CheckSquare, Square, ArrowLeftRight, Eye, History, Edit, Images, Sparkles, CheckCheck } from "lucide-react"
 import type { GenerationRecord } from "@/lib/types"
 import Image from "next/image"
@@ -34,6 +35,8 @@ function IndexedDBImage({ imageKey, ...props }: { imageKey: IndexedDBKey } & Omi
 export function HistoryPanel({ history, onDelete, onSelect, className = "" }: HistoryPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null)
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false)
+  const [modalImageUrl, setModalImageUrl] = useState<ObjectURL | null>(null)
 
   const isAllSelected = history.length > 0 && selectedIds.length === history.length
   const toggleSelectAll = () => {
@@ -82,14 +85,12 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
     onDelete([id])
   }
 
-  const openOriginalImage = async (imageKey: IndexedDBKey, e: React.MouseEvent) => {
+  const openImageModal = async (imageKey: IndexedDBKey, e: React.MouseEvent) => {
     e.stopPropagation()
     const imageSource = await getImageAsObjectUrl(imageKey)
     if (!imageSource) return
-    const win = window.open()
-    if (win) {
-      win.document.write(`<img src="${imageSource}" style="max-width: 100%; height: auto;">`)
-    }
+    setModalImageUrl(imageSource)
+    setIsImageModalOpen(true)
   }
 
   const handleSingleDownload = async (record: GenerationRecord, e: React.MouseEvent) => {
@@ -241,7 +242,7 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
                             {!selectedIds.includes(record.id) && (
                               <div
                                 className="absolute inset-0 bg-background/80 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                                onClick={(e) => openOriginalImage(imageKey, e)}
+                                onClick={(e) => openImageModal(imageKey, e)}
                               >
                                 <Eye className="h-6 w-6 text-primary" />
                               </div>
@@ -263,6 +264,22 @@ export function HistoryPanel({ history, onDelete, onSelect, className = "" }: Hi
           <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
         </ScrollAreaPrimitive.Scrollbar>
       </ScrollAreaPrimitive.Root>
+
+      {/* Image Viewer Modal */}
+      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+        <DialogContent className="!max-w-[95vw] max-h-[95vh] w-fit h-fit p-2 overflow-hidden">
+          {modalImageUrl && (
+            <Image
+              src={modalImageUrl}
+              alt="Full size image"
+              width={1536}
+              height={1536}
+              className="max-w-[93vw] max-h-[93vh] w-auto h-auto object-contain"
+              priority
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
