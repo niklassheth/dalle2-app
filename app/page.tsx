@@ -16,7 +16,7 @@ export default function Home() {
   const [history, setHistory] = useLocalStorage<GenerationRecord[]>("history", [])
   const { setTheme, theme } = useTheme()
   const [selectedRecord, setSelectedRecord] = useState<GenerationRecord | undefined>(undefined)
-  const [model, setModel] = useState<"dall-e-2" | "gpt-image-1">("gpt-image-1")
+  const [model, setModel] = useLocalStorage<"dall-e-2" | "gpt-image-1">("model", "dall-e-2")
   const MAX_HISTORY_LENGTH = 100; // Set a limit for the number of records
 
   // Images are already saved to IndexedDB by image-workspace.tsx
