@@ -650,7 +650,7 @@ export function ImageWorkspace({
                   onChange={(e) => handlePromptChange(e.target.value)}
                   placeholder={mode === "variation" ? "No prompt needed for variations" : "Enter your prompt here"}
                   maxLength={model === "gpt-image-1" ? 32000 : 1000}
-                  className="flex-1 pr-10"
+                  className="flex-1 pr-36"
                   disabled={mode === "variation"}
                   required={mode === "generate" || mode === "edit"}
                 />
@@ -714,7 +714,7 @@ export function ImageWorkspace({
                   onChange={(e) => handlePromptChange(e.target.value)}
                   placeholder="Enter your prompt here"
                   maxLength={model === "gpt-image-1" ? 32000 : 1000}
-                  className="flex-1 pr-10"
+                  className="flex-1 pr-36"
                   required
                 />
                 <Badge className={`p-1 hidden sm:block absolute right-10 top-1/2 -translate-y-1/2 text-xs font-mono`} variant={prompt.length > (model === "gpt-image-1" ? 32000 : 1000) ? 'destructive' : undefined}>
