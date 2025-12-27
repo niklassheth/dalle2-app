@@ -4,6 +4,7 @@ import { ImageWorkspace } from "@/components/image-workspace"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Menu, MoonIcon, SunIcon, GithubIcon } from "lucide-react"
+import { SettingsDialog } from "@/components/settings-dialog"
 import { useTheme } from "next-themes"
 import { useLocalStorage } from "@/lib/use-local-storage"
 import type { GenerationRecord } from "@/lib/types"
@@ -182,6 +183,8 @@ export default function Home() {
                   <span className="sr-only">GitHub repository</span>
                 </Button>
               </a>
+
+              <SettingsDialog history={history} setHistory={setHistory} />
 
               {/* Theme Toggle */}
               <Button
